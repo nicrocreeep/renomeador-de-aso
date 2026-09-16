@@ -11,28 +11,23 @@ st.set_page_config(page_title="Renomeador de ASO por Código", page_icon="📄",
 
 st.title("📄 Renomeador Automático de ASO pelo Código de Controle")
 st.markdown("""
-Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no formato `#M...` e **renomeia o arquivo inteiro para o código extraído**.
+Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no rodapé e **renomeia o arquivo para o código começando por M** (sem o `#`).
 
 **Exemplo:**
 - Tag no ASO: `#M90468C1P3D3E03092026V03092027`
-- Código Extraído: `#M90468C1P3D3E03092026`
-- **Novo Nome:** `#M90468C1P3D3E03092026.pdf`
+- Código Extraído: `M90468C1P3D3E03092026`
+- **Novo Nome do Arquivo:** `M90468C1P3D3E03092026.pdf`
 """)
 
 def extract_aso_code(text):
     if not text:
         return None
 
-    # Padrão 1: Captura desde '#M' até o final da data de emissão (antes da letra 'V' de validade)
-    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai '#M90468C1P3D3E03092026'
-    match = re.search(r'(#M\w+?E\d{8})V?', text)
+    # Captura a partir da letra 'M' até os 8 dígitos da data de emissão (após o 'E'), ignorando o '#'
+    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai 'M90468C1P3D3E03092026'
+    match = re.search(r'#?(M\w+?E\d{8})V?', text)
     if match:
         return match.group(1)
-
-    # Padrão 2: Fallback caso a hashtag #M não seja capturada com clareza no OCR
-    match_fallback = re.search(r'(M\w+?E\d{8})V?', text)
-    if match_fallback:
-        return f"#{match_fallback.group(1)}"
 
     return None
 
@@ -81,7 +76,7 @@ def process_pdf(file_bytes):
     return None
 
 uploaded_files = st.file_uploader(
-    "Envie seus arquivos de ASO em PDF (pode selecionar os 55 arquivos de uma vez):",
+    "Envie seus arquivos de ASO em PDF (pode selecionar todos de uma vez):",
     type=["pdf"],
     accept_multiple_files=True
 )
@@ -133,6 +128,6 @@ if uploaded_files:
         st.download_button(
             label="📦 Baixar Todos os Arquivos Renomeados (.ZIP)",
             data=zip_buffer,
-            file_name="ASOs_Renomeados_Por_Codigo.zip",
+            file_name="ASOs_Renomeados.zip",
             mime="application/zip"
         )
