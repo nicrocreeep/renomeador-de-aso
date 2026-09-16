@@ -2,7 +2,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 import pdfplumber
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 import re
 import io
 import zipfile
@@ -11,23 +11,27 @@ st.set_page_config(page_title="Renomeador de ASO por Código", page_icon="📄",
 
 st.title("📄 Renomeador Automático de ASO pelo Código de Controle")
 st.markdown("""
-Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no rodapé e **renomeia o arquivo para o código completo** (iniciando em **M** e incluindo a data de vencimento após o **V**).
+Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)** nativos ou escaneados, localiza o código no rodapé e renomeia o arquivo.
 
-**Exemplo:**
-- Tag no ASO: `#M90468C1P3D3E03092026V03092027`
-- Código Extraído: `M90468C1P3D3E03092026V03092027`
-- **Novo Nome do Arquivo:** `M90468C1P3D3E03092026V03092027.pdf`
+**Exemplo de Extração:**
+- Texto no Rodapé: `#M65614C1P3D3E01122025V01122026 1/1 #`
+- **Novo Nome do Arquivo:** `M65614C1P3D3E01122025V01122026.pdf`
 """)
 
 def extract_aso_code(text):
     if not text:
         return None
 
-    # Captura a partir do 'M', passando pela data de emissão ('E' + 8 dígitos) e incluindo a data de vencimento ('V' + 8 dígitos)
-    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai 'M90468C1P3D3E03092026V03092027'
-    match = re.search(r'#?(M\w+?E\d{8}V\d{8})', text)
+    # Busca padrão começando com M até a data de emissão (E + 8 dígitos) e vencimento (V + 8 dígitos)
+    # Ignora o '#' inicial e caracteres extras ao redor (como '1/1 #')
+    match = re.search(r'#?\b(M[A-Z0-9]+?E\d{8}V\d{8})\b', text)
     if match:
         return match.group(1)
+
+    # Fallback caso haja falha de OCR trocando letras/números ou sem espaço claro
+    match_fallback = re.search(r'(M\w+?E\d{8}V\d{8})', text)
+    if match_fallback:
+        return match_fallback.group(1)
 
     return None
 
@@ -58,14 +62,23 @@ def process_pdf(file_bytes):
     except Exception:
         pass
 
-    # 3. Fallback OCR (pytesseract) para ASOs escaneados
+    # 3. Fallback OCR Avançado (Pytesseract) com pré-processamento de imagem para escaneados
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         text = ""
         for page in doc:
-            pix = page.get_pixmap(dpi=150)
+            # Renderiza a página com DPI mais alto para melhorar OCR
+            pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
-            text += pytesseract.image_to_string(img) + "\n"
+            
+            # Pré-processamento: Tons de cinza e Contraste
+            img_gray = ImageOps.grayscale(img)
+            enhancer = ImageEnhance.Contrast(img_gray)
+            img_processed = enhancer.enhance(2.0)
+            
+            # Executa Tesseract configurado para tratar blocos de texto
+            text += pytesseract.image_to_string(img_processed, config='--psm 6') + "\n"
+            text += pytesseract.image_to_string(img_processed) + "\n"
         
         found_code = extract_aso_code(text)
         if found_code:
