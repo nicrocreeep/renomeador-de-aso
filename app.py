@@ -10,40 +10,36 @@ import zipfile
 st.set_page_config(page_title="Renomeador de ASO por Código", page_icon="📄", layout="wide")
 
 st.title("📄 Renomeador Automático de ASO pelo Código de Controle")
-st.markdown("""
-Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)** nativos ou escaneados, localiza o código no rodapé e renomeia o arquivo.
-
-**Exemplo de Extração:**
-- Texto no Rodapé: `#M65614C1P3D3E01122025V01122026 1/1 #`
-- **Novo Nome do Arquivo:** `M65614C1P3D3E01122025V01122026.pdf`
-""")
 
 def extract_aso_code(text):
     if not text:
         return None
 
-    # Busca padrão começando com M até a data de emissão (E + 8 dígitos) e vencimento (V + 8 dígitos)
-    # Ignora o '#' inicial e caracteres extras ao redor (como '1/1 #')
-    match = re.search(r'#?\b(M[A-Z0-9]+?E\d{8}V\d{8})\b', text)
-    if match:
-        return match.group(1)
+    # Remove quebras de linha e múltiplos espaços para garantir que a tag fique contínua
+    clean_text = re.sub(r'\s+', '', text)
 
-    # Fallback caso haja falha de OCR trocando letras/números ou sem espaço claro
-    match_fallback = re.search(r'(M\w+?E\d{8}V\d{8})', text)
+    # Busca o padrão: M + caracteres + E + 8 dígitos + V + 8 dígitos
+    # Exemplo extraído: M65614C1P3D3E01122025V01122026
+    match = re.search(r'(M[A-Za-z0-9]+?E\d{8}V\d{8})', clean_text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+
+    # Fallback mais permissivo caso falhar a data de vencimento
+    match_fallback = re.search(r'(M[A-Za-z0-9]{5,25}E\d{8})', clean_text, re.IGNORECASE)
     if match_fallback:
-        return match_fallback.group(1)
+        return match_fallback.group(1).upper()
 
     return None
 
 def process_pdf(file_bytes):
-    # 1. Leitura rápida de texto nativo via PyMuPDF
+    # 1. Leitura rápida de texto nativo via PyMuPDF (Lê bloco a bloco)
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
-        text = ""
+        full_text = ""
         for page in doc:
-            text += page.get_text() + "\n"
+            full_text += page.get_text("text") + " "
         
-        found_code = extract_aso_code(text)
+        found_code = extract_aso_code(full_text)
         if found_code:
             return found_code
     except Exception:
@@ -52,35 +48,38 @@ def process_pdf(file_bytes):
     # 2. Leitura via pdfplumber
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            text = ""
+            full_text = ""
             for page in pdf.pages:
-                text += page.extract_text() or ""
+                full_text += (page.extract_text() or "") + " "
             
-            found_code = extract_aso_code(text)
+            found_code = extract_aso_code(full_text)
             if found_code:
                 return found_code
     except Exception:
         pass
 
-    # 3. Fallback OCR Avançado (Pytesseract) com pré-processamento de imagem para escaneados
+    # 3. Fallback OCR focado no Rodapé (Recorte dos últimos 20% da página)
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
-        text = ""
+        full_text = ""
         for page in doc:
-            # Renderiza a página com DPI mais alto para melhorar OCR
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             
-            # Pré-processamento: Tons de cinza e Contraste
-            img_gray = ImageOps.grayscale(img)
-            enhancer = ImageEnhance.Contrast(img_gray)
-            img_processed = enhancer.enhance(2.0)
+            # Recorta apenas o rodapé (últimos 20% de altura) para focar na tag
+            width, height = img.size
+            crop_box = (0, int(height * 0.75), width, height)
+            footer_img = img.crop(crop_box)
             
-            # Executa Tesseract configurado para tratar blocos de texto
-            text += pytesseract.image_to_string(img_processed, config='--psm 6') + "\n"
-            text += pytesseract.image_to_string(img_processed) + "\n"
+            # Tratamento de imagem para OCR
+            gray = ImageOps.grayscale(footer_img)
+            enhancer = ImageEnhance.Contrast(gray)
+            processed_img = enhancer.enhance(2.0)
+            
+            full_text += pytesseract.image_to_string(processed_img, config='--psm 6') + " "
+            full_text += pytesseract.image_to_string(processed_img) + " "
         
-        found_code = extract_aso_code(text)
+        found_code = extract_aso_code(full_text)
         if found_code:
             return found_code
     except Exception:
