@@ -9,45 +9,44 @@ import zipfile
 
 st.set_page_config(page_title="Renomeador de ASO por Código", page_icon="📄", layout="wide")
 
-st.title("📄 Renomeador Automático de ASO por Código de Emissão")
+st.title("📄 Renomeador Automático de ASO pelo Código de Controle")
 st.markdown("""
-Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, extrai a data de emissão contida na estrutura do código `#M...E[DDMMAAAA]` do rodapé e renomeia o arquivo adicionando a data formatada no final.
+Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no formato `#M...` e **renomeia o arquivo inteiro para o código extraído**.
 
-**Estrutura do Código:**
-- `#M[MATRÍCULA]C[EMPRESA]P[PROCESSO]D[TIPO]E[DATA_EMISSÃO]V[DATA_VALIDADE]`
-- Exemplo: `#M90468C1P3D3E03092026V03092027` ➔ Extrai **03.09.2026**
+**Exemplo:**
+- Tag no ASO: `#M90468C1P3D3E03092026V03092027`
+- Código Extraído: `#M90468C1P3D3E03092026`
+- **Novo Nome:** `#M90468C1P3D3E03092026.pdf`
 """)
 
-def extract_emission_date_from_code(text):
+def extract_aso_code(text):
     if not text:
         return None
 
-    # Captura a data de 8 dígitos que vem exatamente após 'E' no padrão #M...
-    # Exemplo: #M90468C1P3D3E03092026V03092027
-    match = re.search(r'#M\w+?E(\d{2})(\d{2})(\d{4})', text)
+    # Padrão 1: Captura desde '#M' até o final da data de emissão (antes da letra 'V' de validade)
+    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai '#M90468C1P3D3E03092026'
+    match = re.search(r'(#M\w+?E\d{8})V?', text)
     if match:
-        day, month, year = match.groups()
-        return f"{day}.{month}.{year}"
+        return match.group(1)
 
-    # Fallback caso a hashtag #M não venha completa no OCR, mas venha E[DDMMAAAA]V
-    match_fallback = re.search(r'E(\d{2})(\d{2})(\d{4})V', text)
+    # Padrão 2: Fallback caso a hashtag #M não seja capturada com clareza no OCR
+    match_fallback = re.search(r'(M\w+?E\d{8})V?', text)
     if match_fallback:
-        day, month, year = match_fallback.groups()
-        return f"{day}.{month}.{year}"
+        return f"#{match_fallback.group(1)}"
 
     return None
 
 def process_pdf(file_bytes):
-    # 1. Leitura rápida do texto nativo via PyMuPDF
+    # 1. Leitura rápida de texto nativo via PyMuPDF
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         text = ""
         for page in doc:
             text += page.get_text() + "\n"
         
-        extracted_date = extract_emission_date_from_code(text)
-        if extracted_date:
-            return extracted_date
+        found_code = extract_aso_code(text)
+        if found_code:
+            return found_code
     except Exception:
         pass
 
@@ -58,9 +57,9 @@ def process_pdf(file_bytes):
             for page in pdf.pages:
                 text += page.extract_text() or ""
             
-            extracted_date = extract_emission_date_from_code(text)
-            if extracted_date:
-                return extracted_date
+            found_code = extract_aso_code(text)
+            if found_code:
+                return found_code
     except Exception:
         pass
 
@@ -73,9 +72,9 @@ def process_pdf(file_bytes):
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             text += pytesseract.image_to_string(img) + "\n"
         
-        extracted_date = extract_emission_date_from_code(text)
-        if extracted_date:
-            return extracted_date
+        found_code = extract_aso_code(text)
+        if found_code:
+            return found_code
     except Exception:
         pass
 
@@ -90,7 +89,7 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     st.info(f"Total de arquivos carregados: **{len(uploaded_files)}**")
     
-    if st.button("🚀 Processar e Renomear Arquivos"):
+    if st.button("🚀 Processar e Renomear para o Código"):
         results = []
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -102,15 +101,15 @@ if uploaded_files:
                 status_text.text(f"Processando [{idx+1}/{len(uploaded_files)}]: {uploaded_file.name}")
                 
                 file_bytes = uploaded_file.read()
-                found_date = process_pdf(file_bytes)
+                aso_code = process_pdf(file_bytes)
                 
                 original_name = uploaded_file.name
-                base_name = original_name[:-4] if original_name.lower().endswith(".pdf") else original_name
                 
-                if found_date:
-                    new_filename = f"{base_name} - {found_date}.pdf"
+                if aso_code:
+                    new_filename = f"{aso_code}.pdf"
                     status = "✅ Sucesso"
                 else:
+                    base_name = original_name[:-4] if original_name.lower().endswith(".pdf") else original_name
                     new_filename = f"{base_name} - CODIGO_NAO_ENCONTRADO.pdf"
                     status = "⚠️ Código não localizado"
                 
@@ -118,8 +117,8 @@ if uploaded_files:
                 
                 results.append({
                     "Arquivo Original": original_name,
-                    "Data Emissão (E)": found_date if found_date else "Não localizada",
-                    "Novo Nome": new_filename,
+                    "Código Extraído": aso_code if aso_code else "Não localizado",
+                    "Novo Nome do Arquivo": new_filename,
                     "Status": status
                 })
                 
@@ -134,6 +133,6 @@ if uploaded_files:
         st.download_button(
             label="📦 Baixar Todos os Arquivos Renomeados (.ZIP)",
             data=zip_buffer,
-            file_name="ASOs_Renomeados.zip",
+            file_name="ASOs_Renomeados_Por_Codigo.zip",
             mime="application/zip"
         )
