@@ -11,21 +11,21 @@ st.set_page_config(page_title="Renomeador de ASO por Código", page_icon="📄",
 
 st.title("📄 Renomeador Automático de ASO pelo Código de Controle")
 st.markdown("""
-Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no rodapé e **renomeia o arquivo para o código começando por M** (sem o `#`).
+Esta aplicação analisa os arquivos de **ASO (Atestado de Saúde Ocupacional)**, localiza a tag do código de controle no rodapé e **renomeia o arquivo para o código completo** (iniciando em **M** e incluindo a data de vencimento após o **V**).
 
 **Exemplo:**
 - Tag no ASO: `#M90468C1P3D3E03092026V03092027`
-- Código Extraído: `M90468C1P3D3E03092026`
-- **Novo Nome do Arquivo:** `M90468C1P3D3E03092026.pdf`
+- Código Extraído: `M90468C1P3D3E03092026V03092027`
+- **Novo Nome do Arquivo:** `M90468C1P3D3E03092026V03092027.pdf`
 """)
 
 def extract_aso_code(text):
     if not text:
         return None
 
-    # Captura a partir da letra 'M' até os 8 dígitos da data de emissão (após o 'E'), ignorando o '#'
-    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai 'M90468C1P3D3E03092026'
-    match = re.search(r'#?(M\w+?E\d{8})V?', text)
+    # Captura a partir do 'M', passando pela data de emissão ('E' + 8 dígitos) e incluindo a data de vencimento ('V' + 8 dígitos)
+    # Exemplo: '#M90468C1P3D3E03092026V03092027' -> Extrai 'M90468C1P3D3E03092026V03092027'
+    match = re.search(r'#?(M\w+?E\d{8}V\d{8})', text)
     if match:
         return match.group(1)
 
